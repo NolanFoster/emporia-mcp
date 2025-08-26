@@ -5,13 +5,13 @@
  * to avoid duplication across multiple files.
  */
 
-// API and Service URLs.
-export const EMPORIA_LEGACY_API_ORIGIN = "https://api.emporiaenergy.com";
-export const EMPORIA_API_ORIGIN = "https://c-api.emporiaenergy.com";
+// API URLs
+export const EMPORIA_LEGACY_API_ORIGIN = process.env.EMPORIA_LEGACY_API_ORIGIN || "https://api.emporiaenergy.com";
+export const EMPORIA_API_ORIGIN = process.env.EMPORIA_API_ORIGIN || "https://c-api.emporiaenergy.com";
+
+// Authentication
 export const COGNITO_URL = "https://cognito-idp.us-east-2.amazonaws.com/";
+export const COGNITO_CLIENT_ID = process.env.EMPORIA_COGNITO_CLIENT_ID || "4qte47jbstod8apnfic0bunmrq";
 
-// Authentication credentials.
-export const COGNITO_CLIENT_ID = "4qte47jbstod8apnfic0bunmrq";
-
-// Application settings.
+// Application settings
 export const USER_AGENT = "emporia-mcp/1.0";

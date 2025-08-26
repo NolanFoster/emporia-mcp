@@ -341,22 +341,24 @@ export interface GetSmartPlugEnergyUsageParams {
 
 // Device Channels response interfaces based on OpenAPI schema
 export interface DeviceChannel {
-  channelNum?: string;
-  name?: string;
-  channelTypeGid?: number;
-  deviceGid?: number;
-  parentChannelNum?: string | null;
-  mainBranchCircuit?: boolean;
-  combined?: boolean;
-  mergedBranch?: boolean;
-  hasData?: boolean;
-  childChannelNums?: string[];
-  type?: string;
+  display_name?: string;
+  channel_id: string;
+  parent_channel_id?: string | null;
+  channel_num: string;
+  sub_type?: string;
+  nested_devices?: DeviceChannelsItem[]
 }
 
 export interface DeviceChannelsItem {
   device_gid: number;
+  device_id: string;
+  parent_device_id?: string;
   channels: DeviceChannel[];
+}
+
+export interface DeviceRelationship {
+  child_device_id: string;
+  parent_device_id: string;
 }
 
 export interface DeviceChannelData {
@@ -622,6 +624,33 @@ export interface DeviceSummary {
   deviceDetails: {
     evCharger: EvCharger | null;
     smartPlug: Outlet | null;
+    battery: Battery | null;
+  };
+}
+
+export interface LocationSummary {
+  latitude_longitude: LatitudeLongitude | null;
+  time_zone: string;
+  location_information: LocationInformation | null;
+  zip_code: string | null;
+}
+
+export interface DeviceInfo {
+  device_gid: number;
+  manufacturer_device_id: string;
+  model: string;
+  firmware_version: string | null;
+  connected: boolean;
+  offline_since: string | null;
+  device_type: string;
+  display_name: string;
+  utility_rate_selected: boolean;
+  usage_cents_per_kwh: number | null;
+  billing_cycle_start_day: number;
+  location_summary: LocationSummary;
+  device_details: {
+    ev_charger: EvCharger | null;
+    smart_plug: Outlet | null;
     battery: Battery | null;
   };
 }

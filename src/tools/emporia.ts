@@ -5,19 +5,20 @@ import {
   GetEVChargingReportParams,
   GetEVChargerSessionsParams,
   GetDevicePowerUsageParams,
-  GetDeviceEnergyUsageParams,
+  GetDeviceEnergyUsageParams
 } from "../types/mcp.js";
 import { log } from "../utils/log.js";
 import { z } from "zod";
+import { DeviceInfo } from "../types/api.js";
 
 /**
  * Register all Emporia tools with the MCP server.
  */
 export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiService): void {
   // Register listDevices tool
-  server.tool("listDevices", {}, async () => {
+  server.tool("listDevices", {}, async (request, extra) => {
     try {
-      const result = await apiService.listDevices();
+      const result = await apiService.listDevices(extra.authInfo?.token as string);
 
       // Device type summary
       const deviceTypes = result.devices.reduce((acc: Record<string, number>, device) => {
@@ -26,7 +27,34 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
         return acc;
       }, {});
 
-      // LLM-friendly output using the API's summary
+      const devices: DeviceInfo[] = result.devices.map( d => {
+        return {
+          device_gid: d.id,
+          manufacturer_device_id: d.manufacturerDeviceId,
+          model: d.model,
+          firmware_version: d.firmwareVersion,
+          connected: d.connected,
+          offline_since: d.offlineSince,
+          device_type: d.type,
+          display_name: d.name,
+          utility_rate_selected: d.locationProperties.utilityRateGid !== null,
+          usage_cents_per_kwh: (d.locationProperties.utilityRateGid === null) ? d.locationProperties.usageCentPerKwHour : null,
+          billing_cycle_start_day: d.locationProperties.billingCycleStartDay,
+          location_summary: {
+            latitude_longitude: d.locationProperties.latitudeLongitude,
+            time_zone: d.locationProperties.timeZone,
+            location_information: d.locationProperties.locationInformation,
+            zip_code: d.locationProperties.zipCode
+          },
+          device_details: {
+            ev_charger: d.deviceDetails.evCharger,
+            smart_plug: d.deviceDetails.smartPlug,
+            battery: d.deviceDetails.battery
+          },
+        };
+      });
+
+      // LLM-friendly output
       return {
         content: [
           {
@@ -41,7 +69,7 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
           },
           {
             type: "text",
-            text: "Device Summary:\n" + JSON.stringify(result.devices, null, 2),
+            text: "Device Summary:\n" + JSON.stringify(devices, null, 2),
           },
           {
             type: "text",
@@ -50,8 +78,7 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
         ],
       };
     } catch (error: any) {
-      log("Error in listDevices tool", { error: String(error) });
-      console.error("Error in listDevices tool:", error);
+      log("Error in listDevices tool", { error: String(error) }, "error");
       return {
         content: [
           {
@@ -65,22 +92,18 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
   });
 
   // Register getDevicesChannels tool
-  server.tool("getDevicesChannels", {}, async () => {
+  server.tool("getDevicesChannels", {}, async (request, extra) => {
     try {
-      const result = await apiService.getDevicesChannels();
+      const result = await apiService.getDevicesChannels(extra.authInfo?.token as string);
 
       // Create a formatted summary of device channels
       const channelSummary = result.deviceSummaries.map((device) => {
         return {
-          deviceId: device.deviceGid,
+          deviceGid: device.deviceGid,
+          manufacturerDeviceId: device.deviceId,
+          parentDeviceId: device.parentDeviceId,
           channelCounts: device.channelCounts,
           availableChannels: device.channelInfo
-            .filter((c) => c.hasData)
-            .map((c) => ({
-              name: c.name,
-              channelNum: c.channelNum,
-              type: c.type,
-            })),
         };
       });
 
@@ -96,13 +119,12 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
           },
           {
             type: "text",
-            text: "This data shows all available circuits/channels for each device, indicating which have data and circuit relationships. You can use the channel numbers as circuit_ids in the energy monitor API calls.",
+            text: "This data shows all available circuits/channels for each device, indicating which have data and circuit relationships. You can use the channel IDs as circuit_ids in the energy monitor API calls.",
           },
         ],
       };
     } catch (error: any) {
-      log("Error in getDevicesChannels tool", { error: String(error) });
-      console.error("Error in getDevicesChannels tool:", error);
+      log("Error in getDevicesChannels tool", { error: String(error) }, "error");
       return {
         content: [
           {
@@ -121,9 +143,9 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
     {
       manufacturerIds: z.array(z.string()).describe("Array of device manufacturer IDs (serial numbers) to fetch details for"),
     },
-    async (params: { manufacturerIds: string[] }) => {
+    async (params: { manufacturerIds: string[] }, extra) => {
       try {
-        const result = await apiService.getDeviceDetails(params.manufacturerIds);
+        const result = await apiService.getDeviceDetails(extra.authInfo?.token as string, params.manufacturerIds);
         // Format the response for each device type
         const content = Object.entries(result).map(([type, { data }]) => ({
           type: "text" as const,
@@ -141,7 +163,7 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
           ],
         };
       } catch (error: any) {
-        log("Error in getDeviceDetails tool", { error: String(error) });
+        log("Error in getDeviceDetails tool", { error: String(error) }, "error");
         return {
           content: [
             {
@@ -164,13 +186,13 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
         .describe(
           "Array of device serial numbers (manufacturer IDs) to fetch state of charge data for. This tool is specifically for Home Battery systems/devices only, not for EVSE/Electric Vehicle battery information.",
         ),
-      start: z.string().describe("Start timestamp in ISO format (e.g. 2024-05-14T00:00:00Z)"),
-      end: z.string().describe("End timestamp in ISO format (e.g. 2024-05-14T23:59:59Z)"),
+      start: z.string().describe("Start timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSSZ (e.g. 2025-05-14T00:00:00Z)"),
+      end: z.string().describe("End timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSSZ (e.g. 2025-05-14T23:59:59Z)"),
       state_of_charge_resolution: z.enum(["MINUTES", "HOURS", "DAYS"]).describe("Time resolution for state of charge data"),
     },
-    async (params: GetBatteryStateOfChargeParams) => {
+    async (params: GetBatteryStateOfChargeParams, extra) => {
       try {
-        const result = await apiService.getBatteryStateOfCharge(params);
+        const result = await apiService.getBatteryStateOfCharge(extra.authInfo?.token as string, params);
         return {
           content: [
             {
@@ -190,8 +212,7 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
           ],
         };
       } catch (error: any) {
-        log("Error in getBatteryStateOfCharge tool", { error: String(error) });
-        console.error("Error in getBatteryStateOfCharge tool:", error);
+        log("Error in getBatteryStateOfCharge tool", { error: String(error) }, "error");
         return {
           content: [
             {
@@ -210,17 +231,17 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
     "getEVChargingReport",
     {
       device_id: z.string().describe("Device serial number (manufacturer ID) of the EV charger to fetch charging report for"),
-      start: z.string().describe("Start timestamp in ISO format (e.g. 2024-05-14T00:00:00Z)"),
-      end: z.string().describe("End timestamp in ISO format (e.g. 2024-05-14T23:59:59Z)"),
+      start: z.string().describe("Start timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSSZ (e.g. 2025-05-14T00:00:00Z)"),
+      end: z.string().describe("End timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSSZ (e.g. 2025-05-14T23:59:59Z)"),
     },
-    async (params: GetEVChargingReportParams) => {
+    async (params: GetEVChargingReportParams, extra) => {
       try {
-        const result = await apiService.getEVChargingReport(params);
+        const result = await apiService.getEVChargingReport(extra.authInfo?.token as string, params);
         return {
           content: [
             {
               type: "text",
-              text: `Retrieved EV charging report for device ${result.device_id}` + ` from ${result.start} to ${result.end}.`,
+              text: `Retrieved EV charging report for device ${result.device_id}` + ` from ${result.interval.start} to ${result.interval.end}.`,
             },
             {
               type: "text",
@@ -233,8 +254,7 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
           ],
         };
       } catch (error: any) {
-        log("Error in getEVChargingReport tool", { error: String(error) });
-        console.error("Error in getEVChargingReport tool:", error);
+        log("Error in getEVChargingReport tool", { error: String(error) }, "error");
         return {
           content: [
             {
@@ -253,12 +273,12 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
     "getEVChargerSessions",
     {
       device_ids: z.array(z.string()).describe("Array of device serial numbers (manufacturer IDs) to fetch sessions for"),
-      start: z.string().describe("Start timestamp in ISO format (e.g. 2024-05-14T00:00:00Z)"),
-      end: z.string().describe("End timestamp in ISO format (e.g. 2024-05-14T23:59:59Z)"),
+      start: z.string().describe("Start timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSSZ (e.g. 2025-05-14T00:00:00Z)"),
+      end: z.string().describe("End timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSSZ (e.g. 2025-05-14T23:59:59Z)"),
     },
-    async (params: GetEVChargerSessionsParams) => {
+    async (params: GetEVChargerSessionsParams, extra) => {
       try {
-        const result = await apiService.getEVChargerSessions(params);
+        const result = await apiService.getEVChargerSessions(extra.authInfo?.token as string, params);
         return {
           content: [
             {
@@ -276,8 +296,7 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
           ],
         };
       } catch (error: any) {
-        log("Error in getEVChargerSessions tool", { error: String(error) });
-        console.error("Error in getEVChargerSessions tool:", error);
+        log("Error in getEVChargerSessions tool", { error: String(error) }, "error");
         return {
           content: [
             {
@@ -297,14 +316,14 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
       device_ids: z
         .array(z.string())
         .describe("Array of device serial numbers (manufacturer IDs) to fetch power usage data for - NOTE: _*Not*_ 'device_gid'."),
-      start: z.string().describe("Start timestamp in ISO format (e.g. 2024-05-14T00:00:00Z)"),
-      end: z.string().describe("End timestamp in ISO format (e.g. 2024-05-14T23:59:59Z)"),
+      start: z.string().describe("Start timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSSZ (e.g. 2025-05-14T00:00:00Z)"),
+      end: z.string().describe("End timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSSZ (e.g. 2025-05-14T23:59:59Z)"),
       power_resolution: z.enum(["MINUTES", "FIFTEEN_MINUTES"]).describe("Time resolution for power data (MINUTES or FIFTEEN_MINUTES)"),
-      circuit_ids: z.array(z.string()).describe("Array of circuit IDs to fetch usage data for."),
+      circuit_ids: z.array(z.string()).describe("Array of circuit IDs to fetch usage data for. Only required for Vue energy monitor devices. NOTE: \"Mains\" is NOT a valid circuit ID since it combines the valid circuits \"Mains_A\", \"Mains_B\", and \"Mains_C\""),
     },
-    async (params: GetDevicePowerUsageParams) => {
+    async (params: GetDevicePowerUsageParams, extra) => {
       try {
-        const result = await apiService.getDevicePowerUsage(params);
+        const result = await apiService.getDevicePowerUsage(extra.authInfo?.token as string, params);
         // Format the response for each device type
         const content = Object.entries(result).map(([type, { device_ids, powerData }]) => ({
           type: "text" as const,
@@ -323,7 +342,7 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
           ],
         };
       } catch (error: any) {
-        log("Error in getDevicePowerUsage tool", { error: String(error) });
+        log("Error in getDevicePowerUsage tool", { error: String(error) }, "error");
         return {
           content: [
             {
@@ -343,16 +362,16 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
       device_ids: z
         .array(z.string())
         .describe("Array of device serial numbers (manufacturer IDs) to fetch energy usage data for - NOTE: _*Not*_ 'device_gid'."),
-      start: z.string().describe("Start timestamp in ISO format (e.g. 2024-05-14T00:00:00Z)"),
-      end: z.string().describe("End timestamp in ISO format (e.g. 2024-05-14T23:59:59Z)"),
+      start: z.string().describe("Start timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSSZ (e.g. 2025-05-14T00:00:00Z)"),
+      end: z.string().describe("End timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSSZ (e.g. 2025-05-14T23:59:59Z)"),
       energy_resolution: z
         .enum(["MINUTES", "FIFTEEN_MINUTES", "HOURS", "DAYS", "WEEKS", "MONTHS", "YEARS"])
         .describe("Time resolution for energy data"),
-      circuit_ids: z.array(z.string()).describe("Array of circuit IDs to fetch usage data for."),
+      circuit_ids: z.array(z.string()).describe("Array of circuit IDs to fetch usage data for. Only required for Vue energy monitor devices. NOTE: \"Mains\" is NOT a valid circuit ID since it combines the valid circuits \"Mains_A\", \"Mains_B\", and \"Mains_C\""),
     },
-    async (params: GetDeviceEnergyUsageParams) => {
+    async (params: GetDeviceEnergyUsageParams, extra) => {
       try {
-        const result = await apiService.getDeviceEnergyUsage(params);
+        const result = await apiService.getDeviceEnergyUsage(extra.authInfo?.token as string, params);
         // Format the response for each device type
         const content = Object.entries(result).map(([type, { device_ids, energyData }]) => ({
           type: "text" as const,
@@ -371,7 +390,7 @@ export function registerEmporiaTools(server: McpServer, apiService: EmporiaApiSe
           ],
         };
       } catch (error: any) {
-        log("Error in getDeviceEnergyUsage tool", { error: String(error) });
+        log("Error in getDeviceEnergyUsage tool", { error: String(error) }, "error");
         return {
           content: [
             {

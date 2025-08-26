@@ -1,6 +1,6 @@
 {
   "name": "@emporiaenergy/emporia-mcp",
-  "version": "0.0.5",
+  "version": "0.1.0",
   "description": "An MCP Server to access customer data from the Emporia Energy cloud.",
   "keywords": [
     "emporia",
@@ -29,18 +29,24 @@
   ],
   "scripts": {
     "build": "tsc",
+    "dev:remote": "tsx src/remote-server.ts",
     "format": "prettier --write \"**/*.{ts,json}\" && eslint --max-warnings 0 --fix",
     "lint": "prettier --check \"**/*.{ts,json}\" && eslint --max-warnings 0",
     "start": "node build/index.js",
+    "start-remote": "node build/remote-server.js",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.11.2",
+    "@modelcontextprotocol/sdk": "^1.16.0",
+    "cors": "^2.8.5",
     "dotenv": "^16.5.0",
+    "express": "^5.1.0",
     "node-fetch": "^3.3.2",
     "zod": "^3.24.4"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
     "@types/node": "^22.15.18",
     "@types/node-fetch": "^2.6.12",
     "eslint": "^9.27.0",

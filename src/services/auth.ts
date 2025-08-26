@@ -1,7 +1,5 @@
-import { EMPORIA_LEGACY_API_ORIGIN, EMPORIA_API_ORIGIN, USER_AGENT } from "../config.js";
 import { log } from "../utils/log.js";
 import { AuthCredentials, TokenResponse, CognitoAuthResult } from "../types/auth.js";
-import { JsonObject } from "../types/jsonValue.js";
 
 /**
  * Amount of time, in milliseconds, before considering a token expired.
@@ -41,111 +39,9 @@ export class CognitoAuthService {
   }
 
   /**
-   * Makes a get request to api.
-   * @param path The path for the url.
-   * @param args Any arguments.
-   */
-  public async get<T>(
-    path: string,
-    args?: {
-      headers?: any;
-      parameters?: QueryParametersType;
-    },
-  ): Promise<T> {
-    args ??= {};
-    const headers = args?.headers ?? {};
-    const { idToken } = await this.getToken();
-    headers.Authorization = idToken;
-    return this.send<T>("GET", EMPORIA_API_ORIGIN + path, {
-      headers,
-      parameters: args.parameters,
-    });
-  }
-
-  /**
-   * Makes a get request to legacy api.
-   * @param path The path for the url.
-   * @param args Any arguments.
-   */
-  public async getLegacy<T>(
-    path: string,
-    args?: {
-      headers?: any;
-      parameters?: QueryParametersType;
-    },
-  ): Promise<T> {
-    args ??= {};
-    const headers = args?.headers ?? {};
-    const { idToken } = await this.getToken();
-    headers.AuthToken = idToken;
-    return this.send<T>("GET", EMPORIA_LEGACY_API_ORIGIN + path, {
-      headers,
-      parameters: args.parameters,
-    });
-  }
-
-  public async send<T>(
-    method: "POST" | "GET" | "PATCH" | "PUT",
-    fullPath: string,
-    args: {
-      body?: any;
-      headers: any;
-      parameters?: any;
-    },
-  ): Promise<T> {
-    const url = escapeUrl(fullPath, args.parameters);
-
-    const headers = args.headers;
-    headers["User-Agent"] ??= USER_AGENT;
-    headers.Accept ??= "application/json";
-
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method,
-        headers,
-        body: args.body,
-      });
-    } catch (error: any) {
-      log(
-        "Error making request",
-        {
-          url,
-          error: String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-        },
-        "error",
-        "AUTH",
-      );
-      throw error;
-    }
-
-    const text = await response.text();
-    let json: JsonObject;
-    try {
-      json = JSON.parse(text);
-    } catch (error: any) {
-      log(
-        "Error parsing json response.",
-        {
-          url,
-          error: String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-          text,
-        },
-        "error",
-        "AUTH",
-      );
-      throw error;
-    }
-
-    return json as any;
-  }
-
-  /**
    * Get a valid token, refreshing if necessary.
    */
-  private async getToken(): Promise<TokenResponse> {
+  public async getToken(): Promise<TokenResponse> {
     if (!this.isInitialized) {
       log("Auth service not initialized", null, "error", "AUTH");
       throw new Error("Auth service not initialized");
@@ -287,23 +183,5 @@ export class CognitoAuthService {
       accessToken: this.currentAccessToken,
       idToken: this.currentIdToken,
     };
-  }
-}
-
-function escapeUrl(baseUrl: string, parameters?: QueryParametersType): string {
-  if (!parameters) {
-    return baseUrl;
-  }
-
-  const entries = Object.entries(parameters);
-  if (entries.length === 0) {
-    return baseUrl;
-  }
-
-  const queryString = entries.map((p) => escapePair(p[0], p[1])).join("&");
-  return `${baseUrl}?${queryString}`;
-
-  function escapePair(key: string, value: string | undefined | null): string {
-    return !value ? key : `${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
   }
 }
