@@ -2,11 +2,11 @@
 
 The Emporia Energy MCP Server provides a secure way for LLM applications to access your Emporia Energy device data. This MCP server implementation is in BETA and is subject to change moving forwards. 
 
-This MCP Server is implemented as a local stdio (transport) server requiring it to be executed locally similar to a command line program. We are currently investigating options for providing a remote SSE MCP server (hosted by Emporia Energy) that would allow for OAuth authentication flows however we don't have an anticipated timeline of when this might be available. 
+This MCP Server supports multiple transport methods: local stdio (requiring local execution similar to a command line program), legacy Server-Sent Events (SSE), and Streamable HTTP. For remote transports, authentication uses the same bearer tokens as the API. OAuth is also supported for remote transports (see **Using the Remote MCP** below).
 
 This MCP server targets the Emporia Energy customer cloud - it does not support Partner related behavior.
 
-Emporia Energy wants to hear any feedback or suggestions you might have related to this tool (or anything else we're working on). Feel free to reach out with any questions/thoughts by emailing info@emporiaenergy.com.
+Emporia Energy wants to hear any feedback or suggestions you might have related to this tool (or anything else we're working on). Feel free to reach out with any questions/thoughts by emailing [info@emporiaenergy.com](mailto:info@emporiaenergy.com).
 
 To learn more about Emporia Energy and what we're building - feel free to visit our website at [www.emporiaenergy.com](https://www.emporiaenergy.com/). We also have a fairly expansive knowledge base about our products and platform available here: [help.emporiaenergy.com](https://help.emporiaenergy.com/en/).
 
@@ -31,12 +31,13 @@ TODO
 
 ### Tips/Tricks
 - Be detailed when requesting specific dates/times of measurement data. Some clients/LLM's may not provide up-to-date timestamps as part of their prompting process, so specifying exact time frames is usually helpful.  
-      + Instead of "show me last weeks usage", try "show me usage from May 01, 2025 through May 10, 2025"
+  - Instead of "show me last weeks usage", try "show me usage from May 01, 2025 through May 10, 2025"
 - Clarify if you're looking for Power or Energy measurement/usage data as they have separate endpoints/tools (and would be used for separate purposes depending on your goals).  
-      + Instead of "show me usage", try "show me energy usage for..." or "show me power measurements for..."
+  - Instead of "show me usage", try "show me energy usage for..." or "show me power measurements for..."
 
 ## Release Notes
 - May 23, 2025 - Initial release
+- August 26, 2025 - Remote MCP released (SSE & Streamable HTTP)
 
 ## Prerequisites
 - Node.js 18+ (a Docker-based installation option may be available in the future)
@@ -58,9 +59,9 @@ cd emporia-mcp
 npm install && npm run build
 ```
 
-### Configuration in MCP Clients
+### Configuration in MCP Clients 
 
-To use this server within an MCP client, add it to your client's MCP configuration file - using NPX is the recommended option (see below for details of running locally).    
+To use the local MCP server within an MCP client, add it to your client's MCP configuration file - using NPX is the recommended option (see below for details of running locally).    
 Authentication credentials (for your Emporia Energy account) must be provided either through environment variables or a .env file.
 
 #### Option 1: Direct Environment Variables
@@ -124,40 +125,48 @@ There is an [NPX bug on Windows](https://www.reddit.com/r/ClaudeAI/comments/1h3k
 }
 ```
 
+### Using the Remote MCP
+
+To use the remote MCP server, you must use an MCP client which supports remote MCP over SSE or Streamable HTTP transports, such as Claude via the Anthropic API or Claude Desktop (premium plans only).
+The Emporia Remote MCP server can be reached at https://mcp.emporiaenergy.com/streamable (Streamable HTTP) or https://mcp.emporiaenergy.com/sse (Legacy SSE). Depending on the client used, you can use 
+OAuth to authenticate your MCP requests. Note that some clients may only support the Streamable transport for OAuth authentication. For API clients such as Claude via the Anthropic API, you must pass 
+an authentication token retrieved from the OAuth flow in your requests.
+
 # Feature Status
 
-| Category | Feature | Status |
-|:---------|:--------|:------:|
-| **Authentication** | Account/Password (as env vars) | ✅ Available |
-|  | Account/Password (as .ENV File) | ✅ Available |
-|  | OAuth | 🔄 TBD |
-|  | Third-party Auth Providers | 🔄 TBD |
-| **Account Information** | List Devices | ✅ Available |
-|  | Rate Plan Information | 🔄 TBD |
-|  | Recommendations | 🔄 TBD |
-| **Device Details** | Energy Monitors (w/ channels) | ✅ Available |
-|  | EV Chargers | ✅ Available |
-|  | Smart Plugs | ✅ Available |
-|  | Home Batteries | ✅ Available |
-|  | Appliances | ❌ Not Available |
-|  | Thermostats | ❌ Not Available |
-| **Measurements** | Energy Monitors | ✅ Available |
-|  | EV Chargers | ✅ Available |
-|  | Smart Plugs | ✅ Available |
-|  | Home Batteries (inc. SoC) | ✅ Available |
-| **Update Settings/Control** | Energy Monitors | ❌ Not Available |
-|  | EV Chargers | 🔄 TBD |
-|  | Smart Plugs | 🔄 TBD |
-|  | Home Batteries | 🔄 TBD |
-|  | Appliances | ❌ Not Available |
-|  | Thermostats | ❌ Not Available |
-| **Additional Features** | EV Charging Report | ✅ Available |
-|  | EV Charger Sessions | ✅ Available |
-| **MCP Implementation** | via NPM | ✅ Available |
-|  | via Docker | 🔄 TBD |
-|  | Python (UV) | ❌ Not Available |
+| Category | Feature                             | Status |
+|:---------|:------------------------------------|:------:|
+| **Authentication** | Account/Password (as env vars)      | ✅ Available |
+|  | Account/Password (as .ENV File)     | ✅ Available (Local only) |
+|  | OAuth                               | ✅ Available (Remote only) |
+|  | Third-party Auth Providers          | 🔄 TBD |
+| **Account Information** | List Devices                        | ✅ Available |
+|  | Rate Plan Information               | 🔄 TBD |
+|  | Recommendations                     | 🔄 TBD |
+| **Device Details** | Energy Monitors (w/ channels)       | ✅ Available |
+|  | EV Chargers                         | ✅ Available |
+|  | Smart Plugs                         | ✅ Available |
+|  | Home Batteries                      | ✅ Available |
+|  | Appliances                          | ❌ Not Available |
+|  | Thermostats                         | ❌ Not Available |
+| **Measurements** | Energy Monitors                     | ✅ Available |
+|  | EV Chargers                         | ✅ Available |
+|  | Smart Plugs                         | ✅ Available |
+|  | Home Batteries (inc. SoC)           | ✅ Available |
+| **Update Settings/Control** | Energy Monitors                     | ❌ Not Available |
+|  | EV Chargers                         | 🔄 TBD |
+|  | Smart Plugs                         | 🔄 TBD |
+|  | Home Batteries                      | 🔄 TBD |
+|  | Appliances                          | ❌ Not Available |
+|  | Thermostats                         | ❌ Not Available |
+| **Additional Features** | EV Charging Report                  | ✅ Available |
+|  | EV Charger Sessions                 | ✅ Available |
+| **MCP Implementation** | via NPM                             | ✅ Available |
+|  | via Docker                          | 🔄 TBD |
+|  | Python (UV)                         | ❌ Not Available |
 |  | Tool Configuration (enable/disable) | 🔄 TBD |
-|  | Remote SSE | 🔄 TBD |
+|  | Remote SSE                          | ✅ Available |
+|  | Remote Streamable HTTP              | ✅ Available |
 
 ## Available Tools
 

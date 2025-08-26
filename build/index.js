@@ -37,7 +37,6 @@ async function main() {
     }
     catch (error) {
         log("Failed to initialize with environment credentials", { error: String(error) }, "error", "SERVER");
-        console.error("Failed to initialize with environment credentials:", error);
         process.exit(1);
     }
     /**
@@ -59,7 +58,6 @@ async function main() {
     // Add global error handler
     process.on("unhandledRejection", (reason, promise) => {
         log("Unhandled Rejection", { reason: String(reason) }, "error", "SERVER");
-        console.error("Unhandled Rejection at:", promise, "reason:", reason);
     });
     // Connect the server
     try {
@@ -67,7 +65,6 @@ async function main() {
     }
     catch (error) {
         log("Failed to start server", { error: String(error) }, "error", "SERVER");
-        console.error("Failed to start server:", error);
         process.exit(1);
     }
 }

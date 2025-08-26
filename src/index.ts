@@ -39,7 +39,6 @@ async function main(): Promise<void> {
     log("Authentication service initialized successfully", null, "info", "SERVER");
   } catch (error: any) {
     log("Failed to initialize with environment credentials", { error: String(error) }, "error", "SERVER");
-    console.error("Failed to initialize with environment credentials:", error);
     process.exit(1);
   }
 
@@ -65,7 +64,6 @@ async function main(): Promise<void> {
   // Add global error handler
   process.on("unhandledRejection", (reason, promise) => {
     log("Unhandled Rejection", { reason: String(reason) }, "error", "SERVER");
-    console.error("Unhandled Rejection at:", promise, "reason:", reason);
   });
 
   // Connect the server
@@ -73,7 +71,6 @@ async function main(): Promise<void> {
     await server.connect(transport);
   } catch (error: any) {
     log("Failed to start server", { error: String(error) }, "error", "SERVER");
-    console.error("Failed to start server:", error);
     process.exit(1);
   }
 }

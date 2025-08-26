@@ -2,6 +2,9 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+// Remote MCP server outputs logs directly to the console. Local MCP server outputs logs to a file.
+const isRemoteServer = process.env.MCP_SERVER_MODE === "remote";
+
 // Configure logging.
 const LOG_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../logs");
 const LOG_FILE = path.join(LOG_DIR, `mcp-${new Date().toISOString().split("T")[0]}.log`);
@@ -79,7 +82,7 @@ function setupLogRotation(): void {
 /**
  * Flush logs to disk asynchronously.
  */
-async function flushLogs(): Promise<void> {
+async function flushLogsToDisk(): Promise<void> {
   if (logQueue.length === 0) {
     return;
   }
@@ -118,46 +121,43 @@ export function log(message: string, data: any = null, level: "debug" | "info" |
   const logMsg = data ? `${message}: ${JSON.stringify(data, null, 2)}` : message;
   const formattedLog = `[${prefix} ${timestamp}] [${level.toUpperCase()}] ${logMsg}`;
 
-  // Manage operation logs with size limit.
-  operationLogs.push(formattedLog);
-  if (operationLogs.length > MAX_OPERATION_LOGS) {
-    // Keep most recent logs but trim the middle to maintain context.
-    const firstLogs = operationLogs.slice(0, 100);
-    const lastLogs = operationLogs.slice(operationLogs.length - (MAX_OPERATION_LOGS - 100));
-    operationLogs.length = 0;
-    operationLogs.push(...firstLogs);
-    operationLogs.push(`[...${operationLogs.length - MAX_OPERATION_LOGS} logs truncated...]`);
-    operationLogs.push(...lastLogs);
+  if (!isRemoteServer) {
+    // Manage operation logs with size limit.
+    operationLogs.push(formattedLog);
+    if (operationLogs.length > MAX_OPERATION_LOGS) {
+      // Keep most recent logs but trim the middle to maintain context.
+      const firstLogs = operationLogs.slice(0, 100);
+      const lastLogs = operationLogs.slice(operationLogs.length - (MAX_OPERATION_LOGS - 100));
+      operationLogs.length = 0;
+      operationLogs.push(...firstLogs);
+      operationLogs.push(`[...${operationLogs.length - MAX_OPERATION_LOGS} logs truncated...]`);
+      operationLogs.push(...lastLogs);
+    }
+
+    // Queue log for async writing.
+    logQueue.push(formattedLog);
+
+    // Setup timer to flush logs if not already scheduled.
+    if (!logWriteTimeout) {
+      logWriteTimeout = setTimeout(flushLogsToDisk, LOG_FLUSH_INTERVAL);
+    }
+
+    // Console output to stderr for debugging or errors.
+    if (process.env.DEBUG || level === "error") {
+      console.error(formattedLog);
+    }
+  } else {  
+    // Remote server logs go to the console
+    if ((process.env.DEBUG && level === "debug") || level === "info") {
+      console.info(formattedLog);
+    } else if (level === "error") {
+      console.error(formattedLog);
+    }
   }
-
-  // Queue log for async writing.
-  logQueue.push(formattedLog);
-
-  // Setup timer to flush logs if not already scheduled.
-  if (!logWriteTimeout) {
-    logWriteTimeout = setTimeout(flushLogs, LOG_FLUSH_INTERVAL);
-  }
-
-  // Console output to stderr for debugging or errors.
-  if (process.env.DEBUG || level === "error") {
-    console.error(formattedLog);
-  }
-}
-
-// Format logs for response.
-export function formatLogResponse(logs: string[]): string {
-  if (logs.length <= 100) {
-    return logs.join("\n");
-  }
-
-  // For very long logs, include first and last parts with truncation notice.
-  const first = logs.slice(0, 50);
-  const last = logs.slice(-50);
-  return [...first, `\n... ${logs.length - 100} more log entries (truncated) ...\n`, ...last].join("\n");
 }
 
 // Register handlers for process exit.
-export function registerExitHandlers(): void {
+function registerExitHandlers(): void {
   // Make sure logs are flushed when the process exits.
   process.on("exit", () => {
     if (logQueue.length > 0) {
@@ -182,16 +182,18 @@ export function registerExitHandlers(): void {
   });
 }
 
-// Initialize logging.
-ensureLogDirectory();
-setupLogRotation();
-registerExitHandlers();
+// Initialize local MCP server logging.
+if (!isRemoteServer) {
+  ensureLogDirectory();
+  setupLogRotation();
+  registerExitHandlers();
 
-// Schedule periodic log rotation.
-// Check every 15 minutes.
-setInterval(
-  () => {
-    setupLogRotation();
-  },
-  15 * 60 * 1000,
-);
+  // Schedule periodic log rotation.
+  // Check every 15 minutes.
+  setInterval(
+    () => {
+      setupLogRotation();
+    },
+    15 * 60 * 1000,
+  );
+}

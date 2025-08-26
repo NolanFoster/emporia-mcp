@@ -1,3 +1,4 @@
+import { EMPORIA_LEGACY_API_ORIGIN, EMPORIA_API_ORIGIN, USER_AGENT } from "../config.js";
 import { log } from "../utils/log.js";
 import { DEVICE_TYPE_CONFIGS, DEVICE_TYPE_CONFIGS_BY_TYPE } from "../constants/deviceTypes.js";
 function getDeviceTypeFromId(id) {
@@ -33,10 +34,8 @@ function groupDeviceIdsByType(manufacturerIds) {
     }
     return deviceGroups;
 }
-/**
- * Service for handling Emporia API calls.
- */
 export class EmporiaApiService {
+    /** Cognito auth service used to get auth tokens when the MCP server is running locally (STDIO) */
     authService;
     constructor(authService) {
         this.authService = authService;
@@ -44,9 +43,9 @@ export class EmporiaApiService {
     /**
      * List all devices for the current user.
      */
-    async listDevices() {
+    async listDevices(authToken) {
         try {
-            const data = await this.authService.getLegacy("/customers/devices");
+            const data = await this.get("/customers/devices", authToken, true);
             // Format the response to include more context
             return {
                 customerInfo: {
@@ -82,7 +81,7 @@ export class EmporiaApiService {
     /**
      * Generic device details fetcher by manufacturer ID(s).
      */
-    async getDeviceDetails(manufacturerIds) {
+    async getDeviceDetails(authToken, manufacturerIds) {
         const deviceGroups = groupDeviceIdsByType(manufacturerIds);
         try {
             // Fetch details for each group.
@@ -92,7 +91,7 @@ export class EmporiaApiService {
                     device_ids: ids.join(","),
                 };
                 const endpoint = `/v1/devices/${config.endpoint}`;
-                const data = await this.authService.get(endpoint, { parameters });
+                const data = await this.get(endpoint, authToken, false, { parameters });
                 return [
                     type,
                     {
@@ -119,56 +118,58 @@ export class EmporiaApiService {
      * This endpoint provides detailed information about device channels, including
      * main and branch circuits, which is useful for energy monitoring applications.
      */
-    async getDevicesChannels() {
+    async getDevicesChannels(authToken) {
         try {
-            const endpoint = "/v1/customers/devices/channels";
-            const data = await this.authService.get(endpoint);
+            const channelsEndpoint = "/v1/customers/devices/channels";
+            const channelsData = await this.get(channelsEndpoint, authToken, false);
             // Log information about the response structure
             log("Device channels response structure", {
-                itemCount: data.length,
-                sampleItem: data.length > 0
+                itemCount: channelsData.length,
+                sampleItem: channelsData.length > 0
                     ? {
-                        keys: Object.keys(data[0]),
-                        hasChannels: !!data[0].channels,
+                        keys: Object.keys(channelsData[0]),
+                        hasChannels: !!channelsData[0].channels,
                     }
                     : null,
             }, "debug", "API");
+            // Flatten nested devices to make it easier for LLMs to understand
+            const devices = this.flattenDeviceChannelsItems(channelsData, null);
             // Reduce to summaries because the data can sometimes be too big or confusing for LLM.
-            const deviceSummaries = data.map((device) => {
+            const deviceSummaries = devices.map((device) => {
                 const deviceGid = device.device_gid;
+                const deviceId = device.device_id;
+                const parentDeviceId = device.parent_device_id;
                 const channels = device.channels ?? [];
                 // Count different channel types
                 const channelCounts = {
-                    mainBranch: 0,
-                    combined: 0,
+                    mains: 0,
+                    branch: 0,
                     merged: 0,
-                    withData: 0,
                     total: channels.length,
                 };
                 for (const channel of channels) {
-                    if (channel.mainBranchCircuit) {
-                        channelCounts.mainBranch++;
+                    if (channel.channel_id.startsWith("Main")) {
+                        channelCounts.mains++;
                     }
-                    if (channel.combined) {
-                        channelCounts.combined++;
+                    else if (channel.channel_id.startsWith("Branch")) {
+                        channelCounts.branch++;
                     }
-                    if (channel.mergedBranch) {
+                    else if (channel.channel_id.startsWith("Merged")) {
                         channelCounts.merged++;
-                    }
-                    if (channel.hasData) {
-                        channelCounts.withData++;
                     }
                 }
                 return {
                     description: '"Channels" list will provide the main and branch circuits for each device. Important to note that "Mains" represent a combined circuit of the primary service lines and each individual circuit will have "parent_channel_id" of "Mains". This is not to be confused with branch circuits that have a "channel_num" of 1, 2, or 3 - instead you can compare the "channel_id" to see "branch_XYZ". This detail is important as other API endpoints may return individual channel id\'s that might not be in the same format (and possible that channels 1, 2, 3 as ids would actually represent mains instead of branches in those other endpoints).',
                     deviceGid,
+                    deviceId,
+                    parentDeviceId,
                     channelCounts,
                     // Include channel info for reference
                     channelInfo: channels.map((c) => ({
-                        name: c.name || "Unnamed channel",
-                        channelNum: c.channelNum || "unknown",
-                        hasData: c.hasData ?? false,
-                        type: c.type || "unknown",
+                        name: c.display_name || "Channel " + c.channel_num.replace("_", " "),
+                        channelId: c.channel_id,
+                        channelNum: c.channel_num,
+                        type: c.sub_type || "unknown",
                     })),
                 };
             });
@@ -182,10 +183,31 @@ export class EmporiaApiService {
             throw error;
         }
     }
+    /** Recursively flatten a device channels response to prevent returning a deeply nested structure to LLMs */
+    flattenDeviceChannelsItems(devices, parentDeviceId) {
+        const flattenedDevices = [];
+        for (const device of devices) {
+            const channels = [];
+            for (const channel of device.channels) {
+                if (channel.nested_devices?.length && channel.nested_devices.length > 0) {
+                    const flattenedNestedDevices = this.flattenDeviceChannelsItems(channel.nested_devices, device.device_id);
+                    flattenedDevices.push(...flattenedNestedDevices);
+                }
+                channel.nested_devices = [];
+                channels.push(channel);
+            }
+            if (parentDeviceId !== null) {
+                device.parent_device_id = parentDeviceId;
+            }
+            device.channels = channels;
+            flattenedDevices.push(device);
+        }
+        return flattenedDevices;
+    }
     /**
      * Get battery state of charge for specified devices.
      */
-    async getBatteryStateOfCharge(params) {
+    async getBatteryStateOfCharge(authToken, params) {
         try {
             const { device_ids, start, end, state_of_charge_resolution } = params;
             const parameters = {
@@ -195,7 +217,7 @@ export class EmporiaApiService {
                 state_of_charge_resolution,
             };
             const endpoint = "/v1/devices/batteries/state-of-charge";
-            const data = await this.authService.get(endpoint, { parameters });
+            const data = await this.get(endpoint, authToken, false, { parameters });
             return {
                 device_ids,
                 start,
@@ -212,7 +234,7 @@ export class EmporiaApiService {
     /**
      * Get EV charging report for specified devices.
      */
-    async getEVChargingReport(params) {
+    async getEVChargingReport(authToken, params) {
         try {
             const { device_id, start, end } = params;
             const parameters = {
@@ -221,13 +243,7 @@ export class EmporiaApiService {
                 end,
             };
             const endpoint = "/v1/customers/ev-charging-report";
-            const data = await this.authService.get(endpoint, { parameters });
-            return {
-                device_id,
-                start,
-                end,
-                reportData: data,
-            };
+            return await this.get(endpoint, authToken, false, { parameters });
         }
         catch (error) {
             log("Error fetching EV charging report", { error: String(error), params }, "error", "API");
@@ -237,7 +253,7 @@ export class EmporiaApiService {
     /**
      * Get EVSE sessions for specified devices.
      */
-    async getEVChargerSessions(params) {
+    async getEVChargerSessions(authToken, params) {
         try {
             const { device_ids, start, end } = params;
             const parameters = {
@@ -246,7 +262,7 @@ export class EmporiaApiService {
                 end: end,
             };
             const endpoint = "/v1/devices/evses/sessions";
-            const data = await this.authService.get(endpoint, { parameters });
+            const data = await this.get(endpoint, authToken, false, { parameters });
             return {
                 device_ids,
                 start,
@@ -262,7 +278,7 @@ export class EmporiaApiService {
     /**
      * Generic device power usage fetcher by manufacturer ID(s).
      */
-    async getDevicePowerUsage(params) {
+    async getDevicePowerUsage(authToken, params) {
         const { device_ids, start, end, power_resolution, circuit_ids } = params;
         const deviceGroups = groupDeviceIdsByType(device_ids);
         // Validation: If any device is an energy monitor, circuit_ids must be provided and non-empty
@@ -296,8 +312,7 @@ export class EmporiaApiService {
                     parameters.circuit_ids = circuit_ids.join(",");
                 }
                 const endpoint = `/v1/devices/${endpointPath}`;
-                const data = await this.authService.get(endpoint, { parameters });
-                console.error(data);
+                const data = await this.get(endpoint, authToken, false, { parameters });
                 return [
                     type,
                     {
@@ -317,7 +332,7 @@ export class EmporiaApiService {
             throw error;
         }
     }
-    async getDeviceEnergyUsage(params) {
+    async getDeviceEnergyUsage(authToken, params) {
         const { device_ids, start, end, energy_resolution, circuit_ids } = params;
         const deviceGroups = groupDeviceIdsByType(device_ids);
         // Validation: If any device is an energy monitor, circuit_ids must be provided and non-empty
@@ -352,7 +367,7 @@ export class EmporiaApiService {
                     parameters.circuit_ids = circuit_ids.join(",");
                 }
                 const endpoint = `/v1/devices/${endpointPath}`;
-                const data = await this.authService.get(endpoint, { parameters });
+                const data = await this.get(endpoint, authToken, false, { parameters });
                 return [
                     type,
                     {
@@ -371,5 +386,87 @@ export class EmporiaApiService {
             }, "error", "API");
             throw error;
         }
+    }
+    /**
+     * Makes a get request to legacy api.
+     * @param path The path for the url.
+     * @param authToken The token used to authenticate the request (remote MCP only)
+     * @param legacy Indicates if the request should be sent to the legacy API
+     * @param args An optional object defining the headers and query parameters
+     */
+    async get(path, authToken, legacy, args) {
+        args ??= {};
+        const headers = args?.headers ?? {};
+        let apiOrigin;
+        // Get auth token from Cognito when running the MCP server locally
+        if (authToken === undefined) {
+            if (this.authService === null)
+                throw Error("Missing authorization token");
+            const { idToken } = await this.authService.getToken();
+            authToken = idToken;
+        }
+        if (legacy) {
+            apiOrigin = EMPORIA_LEGACY_API_ORIGIN;
+            headers.AuthToken = authToken;
+        }
+        else {
+            apiOrigin = EMPORIA_API_ORIGIN;
+            headers.Authorization = authToken;
+        }
+        return this.send("GET", apiOrigin + path, {
+            headers,
+            parameters: args.parameters,
+        });
+    }
+    async send(method, fullPath, args) {
+        const url = escapeUrl(fullPath, args.parameters);
+        const headers = args.headers;
+        headers["User-Agent"] ??= USER_AGENT;
+        headers.Accept ??= "application/json";
+        let response;
+        try {
+            response = await fetch(url, {
+                method,
+                headers,
+                body: args.body,
+            });
+        }
+        catch (error) {
+            log("Error making request", {
+                url,
+                error: String(error),
+                stack: error instanceof Error ? error.stack : undefined,
+            }, "error", "AUTH");
+            throw error;
+        }
+        const text = await response.text();
+        let json;
+        try {
+            json = JSON.parse(text);
+        }
+        catch (error) {
+            log("Error parsing json response.", {
+                url,
+                error: String(error),
+                stack: error instanceof Error ? error.stack : undefined,
+                text,
+            }, "error", "AUTH");
+            throw error;
+        }
+        return json;
+    }
+}
+function escapeUrl(baseUrl, parameters) {
+    if (!parameters) {
+        return baseUrl;
+    }
+    const entries = Object.entries(parameters);
+    if (entries.length === 0) {
+        return baseUrl;
+    }
+    const queryString = entries.map((p) => escapePair(p[0], p[1])).join("&");
+    return `${baseUrl}?${queryString}`;
+    function escapePair(key, value) {
+        return !value ? key : `${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
     }
 }
