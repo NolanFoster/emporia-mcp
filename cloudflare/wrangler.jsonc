@@ -12,6 +12,6 @@
     "EMPORIA_API_ORIGIN": "https://c-api.emporiaenergy.com",
     "EMPORIA_AUTH_ORIGIN": "https://auth.emporiaenergy.com",
     "EMPORIA_COGNITO_CLIENT_ID": "4qte47jbstod8apnfic0bunmrq",
-    "EMPORIA_MCP_ORIGIN": "https://emporia-mcp.workers.dev"
+    "EMPORIA_MCP_ORIGIN": "https://emporia-mcp.nolanfoster.workers.dev"
   }
 }
