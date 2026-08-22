@@ -84,10 +84,13 @@ function homePage(mcpOrigin: string): Response {
   <h2>Connect</h2>
   <p>Point an MCP client that supports remote Streamable HTTP + OAuth at:</p>
   <span class="ep">${mcpOrigin}/mcp</span>
+  <p>The client opens a <strong>login form on this Worker</strong> (Emporia email/password).
+     That is intentional — Emporia’s Cognito app does not allowlist third-party callback URLs,
+     so Hosted UI OAuth cannot work on a personal fork.</p>
   <p>Or pass an Emporia Cognito ID token directly:</p>
   <span class="ep">Authorization: Bearer &lt;emporia-id-token&gt;</span>
 
-  <p class="muted">Source: <a href="https://github.com/emporiaenergy/emporia-mcp">emporiaenergy/emporia-mcp</a></p>
+  <p class="muted">Fork: <a href="https://github.com/NolanFoster/emporia-mcp">NolanFoster/emporia-mcp</a></p>
 </body>
 </html>`;
   return new Response(html, {

@@ -2,23 +2,59 @@
 
 Cloud-hosted [Model Context Protocol](https://modelcontextprotocol.io) server for Emporia Energy device data. This package ports the remote (SSE / Streamable HTTP) Emporia MCP server to **Cloudflare Workers** using the Agents SDK `createMcpHandler` (stateless Streamable HTTP).
 
-> **BETA** — subject to change. Requires a native Emporia Energy account (email/password). Google/Apple sign-in accounts are not supported yet; create a shared email/password account if needed.
+> **BETA** — subject to change. Requires a **native** Emporia Energy account (email/password). Google/Apple sign-in accounts are not supported yet; create a shared email/password account if needed.
+
+## Live deployment (this fork)
+
+| | |
+|--|--|
+| MCP | https://emporia-mcp.nolanfoster.workers.dev/mcp |
+| Health | https://emporia-mcp.nolanfoster.workers.dev/health |
+| OAuth metadata | https://emporia-mcp.nolanfoster.workers.dev/.well-known/oauth-authorization-server |
+
+## Why username/password (not Emporia Hosted UI)?
+
+The **root package README** documents `EMPORIA_ACCOUNT` / `EMPORIA_PASSWORD` for the **local stdio** server. Remote MCP normally uses OAuth.
+
+Emporia’s official remote server (`https://mcp.emporiaenergy.com`) works with Cognito Hosted UI because Emporia allowlisted:
+
+```text
+https://mcp.emporiaenergy.com/oauth/callback
+```
+
+on their Cognito app client. A personal fork **cannot** add:
+
+```text
+https://emporia-mcp.nolanfoster.workers.dev/oauth/callback
+```
+
+Cognito then returns **`redirect_mismatch`** — that is the OAuth error you hit.
+
+**This Worker solves it** by running its own authorization server:
+
+1. MCP client discovers OAuth metadata on the Worker  
+2. Browser opens **`/oauth/authorize`** → email/password form **on this Worker**  
+3. Worker calls Cognito `USER_PASSWORD_AUTH` (same as local MCP)  
+4. Worker issues a one-time code back to the MCP client and serves tokens at `/oauth/token`  
+5. Client calls `/mcp` with `Authorization: Bearer <IdToken>`
+
+Credentials are sent to **Emporia Cognito only**; they are not stored on the Worker.
 
 ## Endpoints
 
 | Path | Description |
 |------|-------------|
 | `POST /mcp` | MCP Streamable HTTP (primary) |
-| `POST /streamable` | Alias of `/mcp` (compat with prior remote path) |
-| `GET /oauth/authorize` | OAuth authorize → Cognito Hosted UI |
-| `GET /oauth/callback` | Cognito → MCP client redirect |
-| `POST /oauth/token` | Token proxy to Cognito |
+| `POST /streamable` | Alias of `/mcp` |
+| `GET /oauth/authorize` | Login form (email/password) |
+| `POST /oauth/login` | Validate credentials → redirect with `code` |
+| `POST /oauth/token` | Exchange `code` / refresh for tokens |
 | `POST /oauth/register` | Dynamic client registration |
 | `GET /.well-known/oauth-authorization-server` | OAuth AS metadata |
 | `GET /.well-known/oauth-protected-resource` | Protected resource metadata |
 | `GET /health` | Liveness |
 
-Authentication: `Authorization: Bearer <emporia-cognito-id-token>` on MCP requests. OAuth clients can complete the standard authorization-code + PKCE flow against this Worker; tokens are Emporia Cognito tokens usable against Emporia APIs.
+Authentication on MCP: `Authorization: Bearer <emporia-cognito-id-token>`.
 
 ## Tools
 
@@ -33,87 +69,96 @@ Same tool surface as the local / Express remote server:
 - `getDevicePowerUsage`
 - `getDeviceEnergyUsage`
 
+## Connect an MCP client
+
+### OAuth (recommended)
+
+```json
+{
+  "mcpServers": {
+    "emporia": {
+      "url": "https://emporia-mcp.nolanfoster.workers.dev/mcp"
+    }
+  }
+}
+```
+
+Client opens the Worker login page → enter your **native** Emporia email/password → tokens attach automatically.
+
+### Static bearer (if the client supports custom headers)
+
+1. Complete a login once (or use any Cognito IdToken for your account).  
+2. Configure:
+
+```json
+{
+  "mcpServers": {
+    "emporia": {
+      "url": "https://emporia-mcp.nolanfoster.workers.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer <emporia-id-token>"
+      }
+    }
+  }
+}
+```
+
+Tokens expire (~1 hour). Prefer OAuth so refresh works.
+
+### Do **not** put EMPORIA_ACCOUNT / EMPORIA_PASSWORD on the Worker
+
+Those env vars are for **local stdio only**. Cloud mode never reads them.
+
 ## Local development
 
 ```bash
 cd cloudflare
 npm install
-# Set the public origin used in OAuth metadata (use your workers.dev URL or a tunnel)
 npx wrangler dev
 ```
-
-Optional vars (see `wrangler.jsonc`):
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `EMPORIA_MCP_ORIGIN` | _(required in prod)_ | Public HTTPS origin of this Worker |
 | `EMPORIA_API_ORIGIN` | `https://c-api.emporiaenergy.com` | Partner API |
 | `EMPORIA_LEGACY_API_ORIGIN` | `https://api.emporiaenergy.com` | Legacy customer API |
-| `EMPORIA_AUTH_ORIGIN` | `https://auth.emporiaenergy.com` | Cognito Hosted UI |
-| `EMPORIA_COGNITO_CLIENT_ID` | Emporia public client id | Cognito app client |
+| `EMPORIA_AUTH_ORIGIN` | `https://auth.emporiaenergy.com` | (unused for login form; kept for parity) |
+| `EMPORIA_COGNITO_CLIENT_ID` | Emporia public app client | Cognito `USER_PASSWORD_AUTH` client id |
 
 ```bash
-# Typecheck
 npm run typecheck
-
-# Deploy manually
 npm run deploy
 ```
 
-## Auto-deploy on merge
+## Deploy
 
-GitHub Actions workflow [`.github/workflows/deploy-cloudflare.yml`](../.github/workflows/deploy-cloudflare.yml) deploys this Worker whenever changes under `cloudflare/**` (or the workflow itself) land on `main`.
+Native **Cloudflare Workers Builds** (dashboard Git integration) with:
 
-### One-time Cloudflare setup
+- **Root directory:** `cloudflare`
+- **Production branch:** `main`
+- **Build command:** `npm run build` (typecheck)
+- **Deploy command:** `npx wrangler deploy`
 
-1. Create a Cloudflare API token with **Workers Scripts:Edit** (and Account read) for the target account.
-2. In the GitHub repo **Settings → Secrets and variables → Actions**, add:
-   - `CLOUDFLARE_API_TOKEN` — the API token
-   - `CLOUDFLARE_ACCOUNT_ID` — your account id
-3. Optionally set repository **Variables**:
-   - `EMPORIA_MCP_ORIGIN` — e.g. `https://emporia-mcp.<subdomain>.workers.dev` or a custom domain
-4. After the first deploy, point a custom domain (e.g. `mcp.emporiaenergy.com`) at the Worker and set `EMPORIA_MCP_ORIGIN` to that origin. Cognito’s Hosted UI must allow `{EMPORIA_MCP_ORIGIN}/oauth/callback` as a callback URL.
-
-### Manual deploy from CI
-
-```bash
-gh workflow run deploy-cloudflare.yml
-```
-
-## Connect an MCP client
-
-Example Cursor / Claude desktop remote config:
-
-```json
-{
-  "mcpServers": {
-    "emporia": {
-      "url": "https://mcp.emporiaenergy.com/mcp"
-    }
-  }
-}
-```
-
-Clients that support MCP OAuth will discover `/.well-known/oauth-authorization-server` and complete login via Emporia Cognito. Clients that only support bearer headers can pass an Emporia ID token directly.
+Push to `main` under `cloudflare/**` auto-deploys.
 
 ## Architecture
 
 ```
 MCP Client ──Streamable HTTP──▶ Cloudflare Worker (/mcp)
                                     │
-                                    ├─ Bearer token ──▶ Emporia APIs
+                                    ├─ Bearer IdToken ──▶ Emporia APIs
                                     │
-                                    └─ /oauth/* ──proxy──▶ Cognito Hosted UI
+                                    └─ /oauth/* ── login form ──▶ Cognito USER_PASSWORD_AUTH
 ```
 
-- **Stateless** MCP handler (`agents` + `@modelcontextprotocol/server`) — no Durable Object session affinity required for tool calls.
-- Emporia API client and tool definitions are adapted from the root package `src/` for the Workers runtime (no Node filesystem logging, env via bindings).
+- **Stateless** MCP handler (`agents` + `@modelcontextprotocol/server`).
+- OAuth pending codes live in isolate memory (short TTL). Fine for interactive login; not a multi-colo durable store.
 
 ## Relationship to the root package
 
 | Path | Role |
 |------|------|
-| `/` (repo root) | Local stdio MCP + Express remote server (`src/index.ts`, `src/remote-server.ts`) |
+| `/` (repo root) | Local stdio MCP + Express remote server |
 | `/cloudflare` | This Workers deployment |
 
-Keep tool behavior in sync when changing Emporia API usage in either tree.
+Local stdio uses env username/password. This cloud port uses the same Cognito password API behind an MCP-compatible OAuth facade so remote clients keep working without Emporia allowlisting your callback URL.

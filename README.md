@@ -128,7 +128,11 @@ There is an [NPX bug on Windows](https://www.reddit.com/r/ClaudeAI/comments/1h3k
 #
 ## Cloudflare Workers (cloud)
 
-A Cloudflare Workers deployment lives in [`cloudflare/`](./cloudflare/). It serves Streamable HTTP MCP at `/mcp` with the same Emporia tools and a Cognito OAuth proxy.
+A Cloudflare Workers deployment lives in [`cloudflare/`](./cloudflare/). It serves Streamable HTTP MCP at `/mcp` with the same Emporia tools.
+
+**Auth note:** Local stdio uses `EMPORIA_ACCOUNT` / `EMPORIA_PASSWORD`. The cloud Worker does **not** take those env vars. Remote clients use MCP OAuth against the Worker, which shows an **email/password login form** and exchanges credentials via Cognito `USER_PASSWORD_AUTH` (Emporia’s Hosted UI cannot allowlist third-party `workers.dev` callbacks). See [`cloudflare/README.md`](./cloudflare/README.md).
+
+Fork live URL: `https://emporia-mcp.nolanfoster.workers.dev/mcp`
 
 ```bash
 cd cloudflare
@@ -136,8 +140,6 @@ npm install
 npm start          # wrangler dev
 npm run deploy     # wrangler deploy
 ```
-
-Merges to `main` that touch `cloudflare/**` auto-deploy via [`.github/workflows/deploy-cloudflare.yml`](./.github/workflows/deploy-cloudflare.yml). Configure repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, and optional variable `EMPORIA_MCP_ORIGIN`. See [`cloudflare/README.md`](./cloudflare/README.md) for details.
 
 ## Using the Remote MCP
 
