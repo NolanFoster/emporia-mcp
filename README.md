@@ -125,7 +125,21 @@ There is an [NPX bug on Windows](https://www.reddit.com/r/ClaudeAI/comments/1h3k
 }
 ```
 
-### Using the Remote MCP
+#
+## Cloudflare Workers (cloud)
+
+A Cloudflare Workers deployment lives in [`cloudflare/`](./cloudflare/). It serves Streamable HTTP MCP at `/mcp` with the same Emporia tools and a Cognito OAuth proxy.
+
+```bash
+cd cloudflare
+npm install
+npm start          # wrangler dev
+npm run deploy     # wrangler deploy
+```
+
+Merges to `main` that touch `cloudflare/**` auto-deploy via [`.github/workflows/deploy-cloudflare.yml`](./.github/workflows/deploy-cloudflare.yml). Configure repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, and optional variable `EMPORIA_MCP_ORIGIN`. See [`cloudflare/README.md`](./cloudflare/README.md) for details.
+
+## Using the Remote MCP
 
 To use the remote MCP server, you must use an MCP client which supports remote MCP over SSE or Streamable HTTP transports, such as Claude via the Anthropic API or Claude Desktop (premium plans only).
 The Emporia Remote MCP server can be reached at https://mcp.emporiaenergy.com/streamable (Streamable HTTP) or https://mcp.emporiaenergy.com/sse (Legacy SSE). Depending on the client used, you can use 

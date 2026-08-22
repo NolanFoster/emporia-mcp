@@ -30,3 +30,8 @@ logs
 # Temp files
 tmp/
 temp/
+# Cloudflare Workers
+cloudflare/node_modules/
+cloudflare/.wrangler/
+cloudflare/.dev.vars
+cloudflare/dist/

@@ -34,7 +34,10 @@
     "lint": "prettier --check \"**/*.{ts,json}\" && eslint --max-warnings 0",
     "start": "node build/index.js",
     "start-remote": "node build/remote-server.js",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "cf:dev": "npm --prefix cloudflare run dev",
+    "cf:deploy": "npm --prefix cloudflare run deploy",
+    "cf:typecheck": "npm --prefix cloudflare run typecheck"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.16.0",

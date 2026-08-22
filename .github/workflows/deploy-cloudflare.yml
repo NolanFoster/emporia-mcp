@@ -1,0 +1,68 @@
+name: Deploy Cloudflare Worker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "cloudflare/**"
+      - ".github/workflows/deploy-cloudflare.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-cloudflare-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy emporia-mcp Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: cloudflare
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: cloudflare/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Inject production MCP origin
+        if: ${{ vars.EMPORIA_MCP_ORIGIN != '' }}
+        env:
+          EMPORIA_MCP_ORIGIN: ${{ vars.EMPORIA_MCP_ORIGIN }}
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const origin = process.env.EMPORIA_MCP_ORIGIN;
+          const path = "wrangler.jsonc";
+          let text = fs.readFileSync(path, "utf8");
+          text = text.replace(
+            /("EMPORIA_MCP_ORIGIN"\s*:\s*)"[^"]*"/,
+            `$1${JSON.stringify(origin)}`
+          );
+          fs.writeFileSync(path, text);
+          console.log("Set EMPORIA_MCP_ORIGIN to", origin);
+          NODE
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cloudflare
+          command: deploy

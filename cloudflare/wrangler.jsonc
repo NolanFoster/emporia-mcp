@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "emporia-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "EMPORIA_LEGACY_API_ORIGIN": "https://api.emporiaenergy.com",
+    "EMPORIA_API_ORIGIN": "https://c-api.emporiaenergy.com",
+    "EMPORIA_AUTH_ORIGIN": "https://auth.emporiaenergy.com",
+    "EMPORIA_COGNITO_CLIENT_ID": "4qte47jbstod8apnfic0bunmrq",
+    "EMPORIA_MCP_ORIGIN": "https://emporia-mcp.workers.dev"
+  }
+}

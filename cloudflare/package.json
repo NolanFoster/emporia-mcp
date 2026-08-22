@@ -1,0 +1,28 @@
+{
+  "name": "@emporiaenergy/emporia-mcp-cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Workers cloud deployment of the Emporia Energy MCP Server",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "0.21.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20250726.0",
+    "@types/node": "^22.15.18",
+    "typescript": "^5.8.3",
+    "wrangler": "^3.112.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
